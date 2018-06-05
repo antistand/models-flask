@@ -1,0 +1,153 @@
+1.获取模型类的查询对象
+  1) 通过session来获取BaseQuery对象
+  query = db.session.query(User.id, User.name)
+  可以再query()方法中指定查询的字段Column，如果指定的是实体类，
+  则表示要查询类中的所有Column字段，如：
+  query = db.session.query(User)
+
+  2) 通过实体类来获取BaseQuery对象
+  query = User.query  # 查询所有实体类中的字段
+
+2.查询过滤条件
+  1) filter(Column 条件 条件值, )
+  条件： == 或 Column.__eq__()
+        != 或 Column.__ne__()
+        >  或 Column.__gt__()
+        <  或 Column.__lt__()
+        >= 或 Column.__ge__()
+        <= 或 Column.__le__()
+  2) 模糊查询：
+     User.query.filter(User.name.like('%康%')).all()
+     范围查询：
+     User.query.filter(User.name.in_((1, 3))).all
+     字符传相关查询条件
+     User.query.filter(User.name.startswith('康')  # 以什么什么开头的数据
+     User.query.filter(User.name.endswith('康')  # 以什么什么开头的数据
+  3) 聚合查询
+    使用db.func对象进行聚合查询
+        db.session.query(db.func.count(User.id)).all()
+        count(Column)，Column可以使任意一列 '*'
+        但是query查询中必须指定列(User 或 User.name)
+        如：db.session.query(User.name, db.func.count('*')).all()
+
+    max(Column)  最大
+    min(Column)  最小
+    sum(Column)  求和
+    avg(Column)  平均
+
+    使用聚合函数时，与分组一块使用 BaseQuery.group_by(Column)
+    例：db.session.query(User.name, db.func.sum(User.id)).group_by(User.name).all()
+
+    BaseQuery.filter_by(属性名=属性值)
+    只能完成等值查询
+    q.db.session.query(User)
+    q.filter_by(name='Disen').all()
+    q.filter_by(name='Disen', id=1).all()
+
+  4) 启用别名
+      select user.name, count(*) as cnt from user
+      如果数据库是mysql, 需要注意：
+      在查询字段中没有使用聚合函数的列，要出现在group by语句中
+      select user.name, count('*') as cnt from user froup by user.name
+
+3. 排序，分页
+    1) 排序 BaseQuery.order_by(Column) 默认升序  db.session.query(User).order_by(User.id).all()
+       降序 Column.desc()     降序排序   db.session.query(User).order_by(User.id.desc()).all()
+
+    2) 分页
+        从BaseQuery.paginate() 获取 Pagination 分页器
+        paginate(page=1, per_page=10)
+            page 当前页码
+            per_page 每页显示记录数
+
+        Pagination类对象的属性：
+            items 列表类型，包含页面内所有数据
+            has_prev: 是否有上一页
+            has_next: 是否有下一页
+            next_num: 下页页码
+            prev_num: 上页页码
+            pages: 总页码
+            total: 数据总量
+            page:  当前页码
+            per_page: 每页显示的记录数
+
+4. 关联操作
+    db.ForeignKey('外表名.主键名')  在多端声明外键
+
+    db.relationship('关联类名', backref=db.backref('多端类名', backref=) 在多端声明关联类的属性
+    通过backref在关联类中，声明一个属性，可以关联查询多端的对象属性
+    db.backref('额外属性名', lazy=True)
+        lazy 为True，表示额外的属性在被调用时，才关联查询
+               False，无论使用与否，在查寻一端类的时候，也会关联查询
+
+
+    2) 关联添加：
+        在一端：
+            先查询一端的对象：
+            u = User.query.get(1)
+
+            通过backref生成的集合属性，append()添加多端的对象
+            m1 = Music(name='大海', singer='张雨生', brand='经典', mp3_path='www.baidu.com', user_id=1)
+            u.musics.append(m1)
+
+            保存一端对象
+            db.session.add(u)
+            db.session.commit()
+
+        多端
+            m2 = Music(name='行星', singer='cici', brand='日本冲绳民谣', mp3_path='www.yahoo.com', user_id=5)
+            m2.user_id = 3    # 直接将Music的user_id设置为3，就将音乐绑定到了3号用户
+            或 m2.user = User.query.get(3)  # 这是通过反向关联获取的一个对象，给m2的user属性赋予User对象3，直接也可以形成绑定关联
+
+            db.session.add(m2)
+            db.session.commit()
+
+
+    3) 关联查询
+        db.session.query(User.name, Music.name).all()  # 会出现逻辑错误，笛卡尔层级
+        db.session.query(User.name, Music.name).join(Music).all()  内连接
+        db.session.query(Music.name, User.name).outerjoin(Music).all()  外连接
+
+    4) 关联查询中 多端属性的.any()方法的应用
+        User.query.filter(User.music.any()).all()  查询所有有音乐信息的用户
+
+
+5. 扩展其他操作
+    1) 统计查询结果
+        User.query.count()  获取查询的记录数
+        db.session.query(User).count()
+
+    2) BaseQuery.first()  获取查询结果的第一条
+    3) db.session.refresh(obj)  从数据库同步到对象，刷新数据
+    u1 = User.query.get(1)
+    db.session.refresh(u1)
+
+    4) 查询用户1下所收藏的音乐
+    User.query.get(1).music
+    Music.query.filter(Music.user_id==1).all()
+
+    5) 多对多关联万件关系，查询方式
+        使用第三方表，
+        class Collect():
+            user_id = db.Colunm(db.Integer, db.ForeignKey('image.id'))
+            img_id = db.Column(db.Integer, db.ForeignKey('image.id'))
+            两个表进行连接时，他会通过这个关系自动查找
+
+    Image.query.join((Collect)).
+    filter(Collect.user_id == 1).all()
+
+6. SQLAlchemy + MySQL 数据库连接
+    1) 先安装 pymysql
+    2) 配置数据库链接
+
+
+
+
+
+
+
+
+
+
+
+
